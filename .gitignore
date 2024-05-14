@@ -131,3 +131,6 @@ dist
 
 #Ignore the backend env
 backend/env/
+
+#ignore the service account
+backend/service_account.json

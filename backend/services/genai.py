@@ -9,6 +9,9 @@ from langchain_google_vertexai import VertexAI
 from langchain.chains.summarize import load_summarize_chain
 import logging
 
+import os
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service_account.json'
+
 
 class YoutubeProcessor:
     #Retrieve the full transcript
@@ -37,3 +40,17 @@ class YoutubeProcessor:
             print(f"{author}\n{length}\n{title}\n{total_size}")
         
         return result
+class GenAIProcessor:
+
+    def __init__(self,model_name,project):
+        self.model = VertexAI(model_name=model_name,project=project)
+
+    def generate_document_summary(self,documents :list,**args):
+        chain_type = "map reduce" if len(documents) > 10 else "stuff"
+
+        chain = load_summarize_chain(
+            llm = self.model,
+            chain_type = chain_type,
+            **args
+        )
+        return chain.run(documents)

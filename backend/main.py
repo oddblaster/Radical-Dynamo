@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel, HttpUrl
 from fastapi.middleware.cors import CORSMiddleware
 
-from services.genai import YoutubeProcessor
+from services.genai import (YoutubeProcessor,
+                            GenAIProcessor)
 
 class VideoAnalysisRequest(BaseModel):
     youtube_link: HttpUrl
@@ -25,9 +26,13 @@ def analyze_video(request: VideoAnalysisRequest):
         processor = YoutubeProcessor()
         result = processor.retrieve_youtube_documents(str(request.youtube_link))
 
+        genai_processor = GenAIProcessor("gemini-pro","quizify-radical-ai")
+
+        summary = genai_processor.generate_document_summary(result)
         return{
-            "result": result
+            "summary": summary
         }
+
 
 @app.get("/health")
 def health():
