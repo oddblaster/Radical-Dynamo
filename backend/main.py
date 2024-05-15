@@ -1,3 +1,4 @@
+from click import group
 from fastapi import FastAPI
 from pydantic import BaseModel, HttpUrl
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,8 @@ class VideoAnalysisRequest(BaseModel):
 
 app = FastAPI()
 
+genai_processor = GenAIProcessor("gemini-pro","quizify-radical-ai")
+
 #Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -23,14 +26,16 @@ app.add_middleware(
 def analyze_video(request: VideoAnalysisRequest):
     #Doing the analysis
         
-        processor = YoutubeProcessor()
+        processor = YoutubeProcessor(genai_processor=genai_processor)
         result = processor.retrieve_youtube_documents(str(request.youtube_link))
 
-        genai_processor = GenAIProcessor("gemini-pro","quizify-radical-ai")
-
+        #Find summary
         summary = genai_processor.generate_document_summary(result)
+
+        #Find key concepts
+        key_concepts = processor.find_key_concepts(result,group_size=2)
         return{
-            "summary": summary
+            "key concepts" : key_concepts
         }
 
 

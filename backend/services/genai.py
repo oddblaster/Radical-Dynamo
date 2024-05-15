@@ -7,21 +7,47 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain_google_vertexai import VertexAI
 from langchain.chains.summarize import load_summarize_chain
+from langchain.prompts import PromptTemplate
 import logging
+from tqdm import tqdm
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 import os
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service_account.json'
 
 
+
+
+class GenAIProcessor:
+
+    def __init__(self,model_name,project):
+        self.model = VertexAI(model_name=model_name,project=project)
+
+    def generate_document_summary(self,documents :list,**args):
+        chain_type = "map reduce" if len(documents) > 10 else "stuff"
+
+        chain = load_summarize_chain(
+            llm = self.model,
+            chain_type = chain_type,
+            **args
+        )
+        return chain.run(documents)
+    def get_model(self):
+        return self.model
+
 class YoutubeProcessor:
     #Retrieve the full transcript
 
-    def __init__(self):
+    def __init__(self, genai_processor: GenAIProcessor):
         #Creates a Character Text Splitter that splits text documents into chunks of characters.
         self.text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size = 1000,
                 chunk_overlap = 0
         )
+        self.genAIProcessor = genai_processor
 
     #Retrieves the documents and splits it, returning the metadata as well as the transcript for the youtube video
     def retrieve_youtube_documents(self, video_url: str, verbose = False):
@@ -40,17 +66,45 @@ class YoutubeProcessor:
             print(f"{author}\n{length}\n{title}\n{total_size}")
         
         return result
-class GenAIProcessor:
+    def find_key_concepts(self, documents:list, group_size: int=2):
+        #iterate through all documents of group size N and find key concepts
+        if group_size > len(documents):
+            raise ValueError("Group Size is larger than the number of documents")
+        #Find the number of documents in each group
+        num_docs_per_group = len(documents)//group_size+(len(documents)%group_size >0)
 
-    def __init__(self,model_name,project):
-        self.model = VertexAI(model_name=model_name,project=project)
+        #Split the  document into chunk of size num_docs per game.
+        group = [documents[i:i+num_docs_per_group] for i in range(0, len(documents),num_docs_per_group)]
 
-    def generate_document_summary(self,documents :list,**args):
-        chain_type = "map reduce" if len(documents) > 10 else "stuff"
+        batch_concepts = []
 
-        chain = load_summarize_chain(
-            llm = self.model,
-            chain_type = chain_type,
-            **args
-        )
-        return chain.run(documents)
+        logger.info("finding key concepts...")
+
+        for group in tqdm(group):
+            #Combine content of documents per group
+
+            group_content = ""
+
+            for doc in group:
+                group_content += doc.page_content
+
+            #Prompt for finding templates
+            prompt = PromptTemplate(
+                template = """
+                Find and define key concepts or terms found in the text:
+                {text}
+
+                Respond in the following format as a string separating each concept with a comma:
+                "concept" : "definition"
+                """,
+                input_variables=["text"]
+            )
+
+            #Create chain
+            chain = prompt | self.genAIProcessor.model
+
+            #Run chain
+            concept = chain.invoke({"text" : group_content})
+            batch_concepts.append(concept)
+        
+        return batch_concepts
