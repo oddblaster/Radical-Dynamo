@@ -8,10 +8,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain_google_vertexai import VertexAI
 from langchain.chains.summarize import load_summarize_chain
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from vertexai.generative_models import GenerativeModel
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.pydantic_v1 import BaseModel, Field
 import logging
 from tqdm import tqdm
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,7 +24,9 @@ import os
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service_account.json'
 
 
-
+class Flashcard(BaseModel):
+    concept: str = Field(description="concept")
+    definition: str = Field(description="definition")
 
 class GenAIProcessor:
 
@@ -82,16 +87,30 @@ class YoutubeProcessor:
             
         
         return result
-    def find_key_concepts(self, documents:list, group_size: int=2, verbose = False):
+    def find_key_concepts(self, documents:list, sample_size: int=0, verbose = False):
         #iterate through all documents of group size N and find key concepts
-        if group_size > len(documents):
+        if sample_size > len(documents):
             raise ValueError("Group Size is larger than the number of documents")
-        #Find the number of documents in each group
-        num_docs_per_group = len(documents)//group_size+(len(documents)%group_size >0)
+        
 
+        #Optimize sample size given no input
+        if sample_size == 0:
+            sample_size = len(documents) // 2
+            if verbose: logging.info(f"No sample size specified. Setting number of documents per sample as 5. Sample Size: {sample_size}")
+
+        #Find the number of documents in each group
+        num_docs_per_group = len(documents)//sample_size+(len(documents)%sample_size >0)
+
+      
+        #Check thresholds for response quality
+        if num_docs_per_group > 10:
+            raise ValueError("Each group has more than 10 documents and the output quality will be downgraded significantly. Increase the sample_size parameter to reduce the number of documents per group.")
+        elif num_docs_per_group > 5:
+            logging.warn("Each group has more thant 5 documents and output quality will likely to be degraded. Consider increasing sample size.")
+        
         #Split the  document into chunk of size num_docs per game.
         group = [documents[i:i+num_docs_per_group] for i in range(0, len(documents),num_docs_per_group)]
-
+        
         batch_concepts = []
         batch_cost = 0
 
@@ -104,26 +123,30 @@ class YoutubeProcessor:
 
             for doc in group:
                 group_content += doc.page_content
-
+            
+            parser = JsonOutputParser(pydantic_object=Flashcard)
             #Prompt for finding templates
             prompt = PromptTemplate(
                 template = """
                 Find and define key concepts or terms found in the text:
                 {text}
 
-                Respond in the following format as a string separating each concept with a comma:
-                "concept" : "definition"
+                Respond in the following format as a JSON object without any backticks separating each concept with a comma:
+                {{\"concept\" : \"definition\", \"concept\" : \"definition\", ...}}
                 """,
-                input_variables=["text"]
+                input_variables=["text"],
+                partial_variables={"format_instructions": parser.get_format_instructions()},
             )
 
             #Create chain
-            chain = prompt | self.genAIProcessor.model
+            chain = prompt | self.genAIProcessor.model | parser
 
             #Run chain
-            concept = chain.invoke({"text" : group_content})
-            batch_concepts.append(concept)
+            output_concept = chain.invoke({"text": group_content})
+            
+            batch_concepts.append(output_concept)
 
+            logging.info(print(concept) for concept in batch_concepts)
             #Post Processing Observation
             if verbose:
                 total_input_char = len(group_content)
@@ -133,7 +156,7 @@ class YoutubeProcessor:
                 logging.info(f"Total input characters: {total_input_char}")
                 logging.info(f"Total cost: {total_input_cost}")
 
-                total_output_char = len(concept)
+                total_output_char = len(output_concept)
                 total_output_cost = (total_output_char/1000)*0.000375
 
                 logging.info(f"Total output characters: {total_output_char}")
@@ -142,6 +165,12 @@ class YoutubeProcessor:
                 batch_cost += total_input_cost + total_output_cost
                 logging.info(f"Total group cost: {total_input_cost + total_output_cost}\n")
         
+        #Convert json JSON string from batch concepts to Python Dict
+        processed_concepts = []
+        for concept in batch_concepts:
+            logging.info(f"Batch Concept : {concept}" )
+            input = json.dumps(concept)
+            processed_concepts.append(json.loads(input))
 
         logging.info(f"Total Analysis Cost: ${batch_cost}")
-        return batch_concepts
+        return processed_concepts   
