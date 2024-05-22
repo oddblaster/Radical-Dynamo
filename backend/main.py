@@ -27,15 +27,15 @@ def analyze_video(request: VideoAnalysisRequest):
     #Doing the analysis
         
         processor = YoutubeProcessor(genai_processor=genai_processor)
-        result = processor.retrieve_youtube_documents(str(request.youtube_link),verbose=True)
+        result = processor.retrieve_youtube_documents(str(request.youtube_link),verbose=False)
 
         #Find summary
-        summary = genai_processor.generate_document_summary(result)
+        #summary = genai_processor.generate_document_summary(result)
 
         #Find key concepts
-        key_concepts = processor.find_key_concepts(result,verbose = True)
+        key_concepts = processor.find_key_concepts(result, verbose=True)
         return{
-            "key concepts" : key_concepts
+            "key_concepts" : key_concepts
         }
 
 

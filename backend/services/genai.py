@@ -34,7 +34,7 @@ class GenAIProcessor:
         self.model = VertexAI(model_name=model_name,project=project)
 
     def generate_document_summary(self,documents :list,**args):
-        chain_type = "map reduce" if len(documents) > 10 else "stuff"
+        chain_type = "map_reduce" if len(documents) > 10 else "stuff"
 
         chain = load_summarize_chain(
             llm = self.model,
@@ -95,7 +95,7 @@ class YoutubeProcessor:
 
         #Optimize sample size given no input
         if sample_size == 0:
-            sample_size = len(documents) // 2
+            sample_size = len(documents) // 5
             if verbose: logging.info(f"No sample size specified. Setting number of documents per sample as 5. Sample Size: {sample_size}")
 
         #Find the number of documents in each group
@@ -125,28 +125,44 @@ class YoutubeProcessor:
                 group_content += doc.page_content
             
             parser = JsonOutputParser(pydantic_object=Flashcard)
+
             #Prompt for finding templates
             prompt = PromptTemplate(
                 template = """
-                Find and define key concepts or terms found in the text:
+                Find and define key terms and definitions found in the text:
                 {text}
 
-                Respond in the following format as a JSON object without any backticks separating each concept with a comma:
-                {{\"concept\" : \"definition\", \"concept\" : \"definition\", ...}}
+                Respond in the following format as a JSON object without any backticks separating each term with commas:
+                {{
+                    {{"term" :
+                    "definition}}
+                    
+                    {{"term" :
+                    "definition"}}
+
+                    {{"term" :
+                    "definition"}}
+
+                    {{"term" :
+                    "definition"}}
+
+                    {{"term" :
+                    "definition"}}
+                
+                ...}}
                 """,
-                input_variables=["text"],
-                partial_variables={"format_instructions": parser.get_format_instructions()},
+                input_variables=["text"]
             )
+
 
             #Create chain
             chain = prompt | self.genAIProcessor.model | parser
 
             #Run chain
             output_concept = chain.invoke({"text": group_content})
-            
             batch_concepts.append(output_concept)
 
-            logging.info(print(concept) for concept in batch_concepts)
+            logging.info(print(concept.term) for concept in batch_concepts)
             #Post Processing Observation
             if verbose:
                 total_input_char = len(group_content)
@@ -168,9 +184,8 @@ class YoutubeProcessor:
         #Convert json JSON string from batch concepts to Python Dict
         processed_concepts = []
         for concept in batch_concepts:
-            logging.info(f"Batch Concept : {concept}" )
-            input = json.dumps(concept)
-            processed_concepts.append(json.loads(input))
+            concept_converted = json.dumps(concept)
+            processed_concepts.append(json.loads(concept_converted))
 
         logging.info(f"Total Analysis Cost: ${batch_cost}")
-        return processed_concepts   
+        return processed_concepts
